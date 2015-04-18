@@ -1,0 +1,6 @@
+c:\source\LD32\LD32\bin\LD32.dll.config
+c:\source\LD32\LD32\bin\LD32.dll
+c:\source\LD32\LD32\bin\LD32.pdb
+c:\source\LD32\LD32\obj\Debug\LD32.csprojResolveAssemblyReference.cache
+c:\source\LD32\LD32\obj\Debug\LD32.dll
+c:\source\LD32\LD32\obj\Debug\LD32.pdb
