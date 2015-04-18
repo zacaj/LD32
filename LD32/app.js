@@ -1,4 +1,4 @@
-﻿var __extends = this.__extends || function (d, b) {
+var __extends = this.__extends || function (d, b) {
     for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
     function __() { this.constructor = d; }
     __.prototype = b.prototype;
@@ -18,10 +18,17 @@ var vec2 = (function () {
 })();
 var game;
 var keys = {};
-
+var pressed = {};
+var combo = 0;
+var comboTimeLeft = -1;
+var score = 0;
+var nextScore = 0;
+var addScore = 0;
+var lastScore = 0;
 var Entity = (function () {
     function Entity() {
         this.isDead = false;
+        this.collides = true;
         this.a = 0;
     }
     Entity.prototype.draw = function () {
@@ -31,12 +38,45 @@ var Entity = (function () {
     };
     Entity.prototype.collidedWith = function (e) {
     };
-    Entity.prototype.explode = function () {
-        game.entities.push(new Explosion(this.p, this.r * 2.5));
+    Entity.prototype.explode = function (size) {
+        if (size === void 0) { size = 2.5; }
+        if (this.isDead)
+            return;
+        game.entities.push(new Explosion(this.p, this.r * size));
         this.isDead = true;
     };
     return Entity;
 })();
+var Star = (function (_super) {
+    __extends(Star, _super);
+    function Star() {
+        _super.call(this);
+        this.collides = false;
+        this.p = new vec2(Math.random() * game.canvas.width, Math.random() * game.canvas.height);
+        this.r = 1;
+        var level = Math.random();
+        if (level < .3) {
+            this.speed = Math.random() * .1 + .7;
+            this.color = "#333";
+        }
+        else if (level < .6) {
+            this.speed = Math.random() * .1 + .9;
+            this.color = "#696969";
+        }
+        else if (level < 1) {
+            this.speed = Math.random() * .1 + 1;
+            this.color = "#999";
+        }
+    }
+    Star.prototype.draw = function () {
+        game.ctx.fillStyle = this.color;
+        game.ctx.fillRect(this.p.x, this.p.y, 2, 2);
+        this.p.y += this.speed;
+        if (this.p.y > game.canvas.height)
+            this.p.y -= game.canvas.height;
+    };
+    return Star;
+})(Entity);
 var Explosion = (function (_super) {
     __extends(Explosion, _super);
     function Explosion(p, r) {
@@ -61,29 +101,62 @@ var Enemy = (function (_super) {
     __extends(Enemy, _super);
     function Enemy() {
         _super.call(this);
+        this.flyingFor = 0;
+        this.v = new vec2(0, 0);
         this.p = new vec2(Math.random() * game.canvas.width, -50);
         this.r = 10;
         this.color = "#FF0000";
         this.a = Math.random() * Math.PI * 2;
+        if (Math.random() < .1)
+            this.v.x = Math.random() > .5 ? 1.5 : -1.5;
+        if (Math.random() < .02)
+            this.v.y = 2;
     }
     Enemy.prototype.draw = function () {
         _super.prototype.draw.call(this);
         if (player.grabbed == this)
             return;
-        this.p.y += 2.3;
-        this.a += .03;
-        if (this.p.y > game.canvas.height)
-            this.isDead = true;
-        if (game.nFrame % 50 == 0) {
-            game.entities.push(new Bullet(this.p.copy(), this.a, 2));
+        if (this.flying) {
+            this.p.x += this.flying.x;
+            this.p.y += this.flying.y;
+            this.flyingFor++;
+            if (this.flyingFor > 60)
+                this.explode(4);
         }
+        else {
+            this.p.y += this.v.y || 2;
+            this.p.x += this.v.x;
+            if (this.p.x + this.r * 2 > game.canvas.width || this.p.x - this.r * 2 < 0)
+                this.v.x *= -1;
+            if (this.v.y)
+                if (this.p.y + this.r * 2 > game.canvas.height || this.p.y - this.r * 2 < 0)
+                    this.v.y *= -1;
+            this.a += .02;
+            if (this.p.y > game.canvas.height)
+                this.isDead = true;
+            if (game.nFrame % 50 == 0) {
+                game.entities.push(new Bullet(this.p.copy(), this.a, 1.5));
+            }
+        }
+    };
+    Enemy.prototype.collidedWith = function (e) {
+        if (e instanceof Enemy) {
+            e.explode();
+        }
+    };
+    Enemy.prototype.explode = function (size) {
+        if (size === void 0) { size = 2.5; }
+        _super.prototype.explode.call(this, size);
+        nextScore += 100;
+        combo++;
+        comboTimeLeft = 30;
     };
     return Enemy;
 })(Entity);
 var Bullet = (function (_super) {
     __extends(Bullet, _super);
     function Bullet(p, a, speed, r) {
-        if (typeof r === "undefined") { r = 2; }
+        if (r === void 0) { r = 2; }
         _super.call(this);
         this.p = p;
         this.a = a;
@@ -111,7 +184,6 @@ var Player = (function (_super) {
         this.color = "#00FF00";
     }
     Player.prototype.draw = function () {
-        _super.prototype.draw.call(this);
         if (!this.charging) {
             if (keys[38])
                 this.p.y -= 5;
@@ -121,27 +193,37 @@ var Player = (function (_super) {
                 this.p.x -= 5;
             if (keys[39])
                 this.p.x += 5;
-            if (keys[32])
+            if (pressed[32] && !this.grabbed) {
                 this.charging = true;
-            if (this.grabbed) {
-                this.grabbed.p.x = this.p.x;
-                this.grabbed.p.y = this.p.y - this.r - this.grabbed.r;
-                this.aim += this.aimDir;
-                if (Math.abs(this.aim + Math.PI / 2) > 1)
-                    this.aimDir = -this.aimDir;
-                var d = this.p.copy();
-                d.x += Math.cos(this.aim) * 20;
-                d.y += Math.sin(this.aim) * 20;
-                game.line([this.p, d], "#FFFFFF", false);
-            } else
-                this.aim = -Math.PI / 2;
-        } else {
+                delete pressed[32];
+            }
+        }
+        else {
             this.p.y += 20;
             if (this.p.y + this.r * 2 > game.canvas.height) {
                 this.charging = false;
                 this.p.y = game.canvas.height - this.r * 2;
             }
         }
+        if (this.grabbed) {
+            this.grabbed.p.x = this.p.x;
+            this.grabbed.p.y = this.p.y - this.r - this.grabbed.r;
+            this.aim += this.aimDir;
+            if (Math.abs(this.aim + Math.PI / 2) > .45)
+                this.aimDir = -this.aimDir;
+            var d = this.p.copy();
+            d.x += Math.cos(this.aim) * 40;
+            d.y += Math.sin(this.aim) * 40;
+            game.line([this.p, d], "#FFFFFF", false);
+            if (pressed[32]) {
+                delete pressed[32];
+                this.grabbed.flying = new vec2(Math.cos(this.aim + this.aimDir * 2) * 5, Math.sin(this.aim + this.aimDir * 2) * 5);
+                this.grabbed = undefined;
+            }
+        }
+        else
+            this.aim = -Math.PI / 2;
+        _super.prototype.draw.call(this);
     };
     Player.prototype.collidedWith = function (e) {
         if (e == this.grabbed)
@@ -154,7 +236,8 @@ var Player = (function (_super) {
             if (e instanceof Bullet) {
                 this.explode();
             }
-        } else {
+        }
+        else {
             if (!this.grabbed)
                 if (e instanceof Enemy) {
                     this.grabbed = e;
@@ -175,9 +258,9 @@ var Game = (function () {
         game = this;
     }
     Game.prototype.line = function (points, color, close, p, angle) {
-        if (typeof close === "undefined") { close = true; }
-        if (typeof p === "undefined") { p = new vec2(0, 0); }
-        if (typeof angle === "undefined") { angle = 0; }
+        if (close === void 0) { close = true; }
+        if (p === void 0) { p = new vec2(0, 0); }
+        if (angle === void 0) { angle = 0; }
         this.ctx.strokeStyle = color;
         this.ctx.save();
         this.ctx.translate(p.x, p.y);
@@ -189,29 +272,21 @@ var Game = (function () {
         }
         if (close)
             this.ctx.lineTo(points[0].x, points[0].y);
-
         this.ctx.stroke();
         this.ctx.restore();
     };
-
     Game.prototype.box = function (w, h, color, p, angle) {
-        if (typeof p === "undefined") { p = new vec2(0, 0); }
-        if (typeof angle === "undefined") { angle = 0; }
-        this.line([
-            new vec2(-w / 2, -h / 2),
-            new vec2(-w / 2, h / 2),
-            new vec2(w / 2, h / 2),
-            new vec2(w / 2, -h / 2)], color, true, p, angle);
+        if (p === void 0) { p = new vec2(0, 0); }
+        if (angle === void 0) { angle = 0; }
+        this.line([new vec2(-w / 2, -h / 2), new vec2(-w / 2, h / 2), new vec2(w / 2, h / 2), new vec2(w / 2, -h / 2)], color, true, p, angle);
     };
-
     Game.prototype.start = function () {
         var _this = this;
-        this.timerToken = setInterval(function () {
-            return _this.draw();
-        }, 21);
+        this.timerToken = setInterval(function () { return _this.draw(); }, 21);
         this.entities.push(new Player());
         window.onkeydown = function (e) {
             keys[e.keyCode] = true;
+            pressed[e.keyCode] = true;
             e.preventDefault();
         };
         window.onkeyup = function (e) {
@@ -225,13 +300,33 @@ var Game = (function () {
             enemies++;
         };
         spawn();
+        for (var i = 0; i < 100; i++)
+            game.entities.push(new Star());
     };
-
     Game.prototype.stop = function () {
         clearTimeout(this.timerToken);
     };
-
     Game.prototype.draw = function () {
+        if (addScore > 0) {
+            var change = Math.floor(Math.max(Math.floor(lastScore / 40), 1));
+            score += change;
+            addScore -= change;
+        }
+        else
+            lastScore = 0;
+        if (comboTimeLeft > 0)
+            comboTimeLeft--;
+        if (comboTimeLeft == 0) {
+            addScore += Math.floor(nextScore * combo);
+            lastScore = addScore;
+            nextScore = 0;
+            combo = 0;
+            comboTimeLeft = -1;
+        }
+        document.getElementById('score').innerHTML = "" + score;
+        document.getElementById('addScore').innerHTML = "" + (addScore > 0 ? (" +" + addScore) : "");
+        document.getElementById('nextScore').innerHTML = "" + (nextScore > 0 ? ("+" + nextScore) : "");
+        document.getElementById('combo').innerHTML = "" + (combo > 1 ? (" x" + combo) : "");
         this.ctx.fillStyle = "#000000";
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         this.entities.forEach(function (entity) {
@@ -240,8 +335,12 @@ var Game = (function () {
         var entities = this.entities.slice();
         for (var i = 0; i < entities.length; i++) {
             var a = entities[i];
+            if (!a.collides)
+                continue;
             for (var j = i + 1; j < entities.length; j++) {
                 var b = entities[j];
+                if (!b.collides)
+                    continue;
                 if ((a.p.x - b.p.x) * (a.p.x - b.p.x) + (a.p.y - b.p.y) * (a.p.y - b.p.y) < (a.r + b.r) * (a.r + b.r)) {
                     a.collidedWith(b);
                     b.collidedWith(a);
@@ -256,7 +355,6 @@ var Game = (function () {
     };
     return Game;
 })();
-
 window.onload = function () {
     var greeter = new Game();
     greeter.start();

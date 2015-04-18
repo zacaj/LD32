@@ -11,11 +11,21 @@
 }
 var game: Game;
 var keys = {};
+var pressed = {};
+
+var combo = 0;
+var comboTimeLeft = -1;
+var score = 0;
+var nextScore = 0;
+var addScore = 0;
+var lastScore = 0;
+
 
 class Entity {
     isDead = false;
     color: string;
     p: vec2;
+    collides = true;
     r: number;
     a: number = 0;
     draw() {
@@ -24,11 +34,43 @@ class Entity {
             this.isDead = true;
     }
     collidedWith(e: Entity) { }
-    explode() {
-        game.entities.push(new Explosion(this.p, this.r * 2.5));
+    explode(size: number = 2.5) {
+        if (this.isDead)
+            return;
+        game.entities.push(new Explosion(this.p, this.r * size));
         this.isDead = true;
     }
 }
+class Star extends Entity{
+    speed: number;
+    constructor() {
+        super();
+        this.collides = false;
+        this.p = new vec2(Math.random() * game.canvas.width, Math.random()*game.canvas.height);
+        this.r = 1;
+        var level = Math.random();
+        if (level < .3) {
+            this.speed = Math.random()*.1+.7;
+            this.color = "#333";
+        }
+        else if (level < .6) {
+            this.speed = Math.random() * .1 + .9;
+            this.color = "#696969";
+        }
+        else if (level < 1) {
+            this.speed = Math.random() * .1 + 1;
+            this.color = "#999";
+        }
+    }
+    draw() {
+        game.ctx.fillStyle = this.color;
+        game.ctx.fillRect(this.p.x, this.p.y, 2, 2);
+        this.p.y += this.speed;
+        if (this.p.y > game.canvas.height)
+            this.p.y -= game.canvas.height;
+    }
+}
+        
 class Explosion extends Entity {
     startFrame: number;
     constructor(p: vec2, r: number) {
@@ -49,25 +91,58 @@ class Explosion extends Entity {
     }
 }
 class Enemy extends Entity {
-
+    flying: vec2;
+    flyingFor = 0;
+    v = new vec2(0, 0);
     constructor() {
         super();
         this.p = new vec2(Math.random() * game.canvas.width, -50);
         this.r = 10;
         this.color = "#FF0000";
         this.a = Math.random() * Math.PI * 2;
+        if (Math.random() < .1)
+            this.v.x = Math.random() > .5 ? 1.5 : -1.5;
+        if (Math.random() < .02)
+            this.v.y = 2;
     }
     draw() {
         super.draw();
         if (player.grabbed == this)
             return;
-        this.p.y += 2.3;
-        this.a += .03;
-        if (this.p.y > game.canvas.height)
-            this.isDead = true;
-        if (game.nFrame % 50 == 0) {
-            game.entities.push(new Bullet(this.p.copy(), this.a, 2));
+        if (this.flying) {
+            this.p.x += this.flying.x;
+            this.p.y += this.flying.y;
+            this.flyingFor++;
+            if (this.flyingFor > 60)
+                this.explode(4);
         }
+        else {
+            this.p.y += this.v.y||2;
+            this.p.x += this.v.x;
+            if (this.p.x + this.r * 2 > game.canvas.width || this.p.x-this.r*2<0)
+                this.v.x *= -1;
+            if (this.v.y)
+                if (this.p.y + this.r * 2 > game.canvas.height || this.p.y - this.r * 2 < 0)
+                    this.v.y *= -1;
+            this.a += .02;
+            if (this.p.y > game.canvas.height)
+                this.isDead = true;
+            if (game.nFrame % 50 == 0) {
+                game.entities.push(new Bullet(this.p.copy(), this.a, 1.5));
+            }
+        }
+    }
+    collidedWith(e: Entity) {
+        if (e instanceof Enemy) {
+            e.explode();
+        }
+    }
+    explode(size: number = 2.5) {
+        super.explode(size);
+
+        nextScore += 100;
+        combo++;
+        comboTimeLeft = 30;
     }
 }
 class Bullet extends Entity {
@@ -88,7 +163,7 @@ class Bullet extends Entity {
 }
 class Player extends Entity {
     charging = false;
-    grabbed: Entity;
+    grabbed: Enemy;
     aim = -Math.PI / 2;
     aimDir = -.01;
     constructor() {
@@ -99,7 +174,6 @@ class Player extends Entity {
         this.color = "#00FF00";
     }
     draw() {
-        super.draw();
         if (!this.charging) {
             if (keys[38])
                 this.p.y -= 5;
@@ -109,21 +183,10 @@ class Player extends Entity {
                 this.p.x -= 5;
             if (keys[39])
                 this.p.x += 5;
-            if (keys[32])
+            if (pressed[32] && !this.grabbed) {
                 this.charging = true;
-            if (this.grabbed) {
-                this.grabbed.p.x = this.p.x;
-                this.grabbed.p.y = this.p.y - this.r - this.grabbed.r;
-                this.aim += this.aimDir;
-                if (Math.abs(this.aim+Math.PI/2)>1)
-                    this.aimDir = -this.aimDir
-                var d = this.p.copy();
-                d.x += Math.cos(this.aim) * 20;
-                d.y += Math.sin(this.aim) * 20;
-                game.line([this.p, d], "#FFFFFF", false);
+                delete pressed[32];
             }
-            else
-                this.aim = -Math.PI / 2;
         }
         else {
             this.p.y += 20;
@@ -132,6 +195,25 @@ class Player extends Entity {
                 this.p.y = game.canvas.height - this.r * 2;
             }
         }
+        if (this.grabbed) {
+            this.grabbed.p.x = this.p.x;
+            this.grabbed.p.y = this.p.y - this.r - this.grabbed.r;
+            this.aim += this.aimDir;
+            if (Math.abs(this.aim + Math.PI / 2) > .45)
+                this.aimDir = -this.aimDir
+            var d = this.p.copy();
+            d.x += Math.cos(this.aim) * 40;
+            d.y += Math.sin(this.aim) * 40;
+            game.line([this.p, d], "#FFFFFF", false);
+            if (pressed[32]) {
+                delete pressed[32];
+                this.grabbed.flying = new vec2(Math.cos(this.aim + this.aimDir * 2) * 5, Math.sin(this.aim + this.aimDir * 2) * 5);
+                this.grabbed = undefined;
+            }
+        }
+        else
+            this.aim = -Math.PI / 2;
+        super.draw();
     }
     collidedWith(e: Entity) {
         if (e == this.grabbed)
@@ -197,6 +279,7 @@ class Game {
         this.entities.push(new Player());
         window.onkeydown = function (e) {
             keys[e.keyCode] = true;
+            pressed[e.keyCode] = true;
             e.preventDefault();
         };
         window.onkeyup = function (e) {
@@ -210,6 +293,8 @@ class Game {
             enemies++;
         }
         spawn();
+        for (var i = 0; i < 100; i++)
+            game.entities.push(new Star());
     }
 
     stop() {
@@ -217,6 +302,27 @@ class Game {
     }
 
     draw() {
+        if (addScore > 0) {
+            var change: number = Math.floor(Math.max(Math.floor(lastScore / 40), 1));
+            score += change;
+            addScore -= change;
+        } else
+            lastScore = 0;
+        if (comboTimeLeft > 0)
+            comboTimeLeft--;
+        if (comboTimeLeft == 0) {
+            addScore += Math.floor(nextScore * combo);
+            lastScore = addScore;
+            nextScore = 0;
+            combo = 0;
+            comboTimeLeft = -1;
+        }
+        document.getElementById('score').innerHTML = "" + score;
+        document.getElementById('addScore').innerHTML = "" + (addScore > 0 ? (" +" + addScore) : "");
+        document.getElementById('nextScore').innerHTML = "" + (nextScore > 0 ? ("+" + nextScore) : "");
+        document.getElementById('combo').innerHTML = "" + (combo > 1 ? (" x" + combo) : "");
+
+
         this.ctx.fillStyle = "#000000";
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         this.entities.forEach(function (entity: Entity) {
@@ -225,8 +331,12 @@ class Game {
         var entities = this.entities.slice();
         for (var i = 0; i < entities.length; i++) {
             var a = entities[i];
+            if (!a.collides)
+                continue;
             for (var j = i + 1; j < entities.length; j++) {
                 var b = entities[j];
+                if (!b.collides)
+                    continue;
                 if ((a.p.x - b.p.x) * (a.p.x - b.p.x) + (a.p.y - b.p.y) * (a.p.y - b.p.y) < (a.r + b.r) * (a.r + b.r)) {
                     a.collidedWith(b);
                     b.collidedWith(a);
