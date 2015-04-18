@@ -9,8 +9,40 @@
 </head>
 <body>
 
-    <div id="content">
-        <canvas id="canvas" width="400" height="700"></canvas>
-    </div>
+    <center>
+        <div style='width: 600px;'>
+            <h1 id='scor3e' style='display:none;'></h1>
+            <table id='scores' style="text-align:left; font-style:normal; width:98%; margin-top:-12px; margin-bottom: -10px;">
+                <tr>
+                    <td style="width:50%; position:relative; vertical-align: bottom;">
+                        <span id="score" style="font-size:4em; font-style:normal;"></span>
+                        <span id="addScore" style="font-size:2em; font-style:normal;"></span>
+                    </td>
+                    <td style="text-align: left; width:50%; right:0; font-style:normal;  position:relative; vertical-align: bottom;">
+                        <span id='nextScore' style="font-size:2.7em; font-style:normal;"></span>
+                        <span id='combo' style="font-size:1.9em; width: 70px; font-style:normal;"></span>
+                    </td>
+                </tr>
+            </table>
+            <div id="content">
+                <canvas id="canvas" width="400" height="700"></canvas>
+            </div>
+            <!--div id="content">
+                <h3 style='margin-top:200px;'>LD32</h3>
+                <br />
+                <input type="button" value="Start" onclick="document.getElementById('content').innerHTML='';startGame();">
+            </div-->
+            <div id="directions">
+                Arrows to move<br />
+                Space to charge backwards or throw<br />
+                <br />
+                You are invincible while charging, and will grab the first enemy you hit<br />
+                <br />
+
+                refresh to restart<br /><br />
+            </div>
+            <br /><br /><br /> a game by <a href='twitter.com/zacaj_'>@zacaj_</a>
+        </div>
+    </center>
 </body>
 </html>
