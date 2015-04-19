@@ -20,7 +20,22 @@ var nextScore = 0;
 var addScore = 0;
 var lastScore = 0;
 
-
+function angleToNumber(a: number): number {
+    var i = Math.floor(((a%(Math.PI*2))+Math.PI/8) / Math.PI / 2 * 8);
+    var mapping = {
+        '-1': 6,
+        0: 2,
+        1: 5,
+        2: 1,
+        3: 7,
+        4: 4,
+        5: 8,
+        6: 3,
+        7: 6,
+        8: 2
+    };
+    return mapping[i];
+}
 class Entity {
     isDead = false;
     color: string;
@@ -28,10 +43,19 @@ class Entity {
     collides = true;
     r: number;
     a: number = 0;
+    image;
     draw() {
-        game.box(this.r * 2, this.r * 2, this.color, this.p, this.a);
         if (this.p.x + this.r < 0 || this.p.x - this.r > game.canvas.width || this.p.y + this.r < -1000 || this.p.y - this.r > game.canvas.height)
             this.isDead = true;
+        if (this.image) {
+            var name = this.image();
+            var image = game.images[name];
+            if (image) {
+                game.ctx.drawImage(image, this.p.x - this.r*5, this.p.y - this.r*5, this.r * 2*5, this.r * 2*5);
+                return;
+            }
+        }
+        game.box(this.r * 2, this.r * 2, this.color, this.p, this.a);
     }
     collidedWith(e: Entity) { }
     explode(size: number = 2.5) {
@@ -101,21 +125,35 @@ class Enemy extends Entity {
         this.r = 10;
         this.color = "#FF0000";
         this.a = Math.random() * Math.PI * 2;
-        if (Math.random() < .1)
+        if (Math.random() < .1) {
+            this.value *= 5;
             this.v.x = Math.random() > .5 ? 1.5 : -1.5;
-        if (Math.random() < .02)
+        }
+        if (Math.random() < .02) {
+            this.value *= 10;
             this.v.y = 2;
+        }
+        var enemy = this;
+        this.image = function () {
+            var pref = 'armdown';
+            if (enemy.flying)
+                pref = 'out';
+            return 'redCharacter_' + pref + angleToNumber(enemy.a) + '.png';
+        };
     }
     draw() {
-        super.draw();
         if (player.grabbed == this)
             return;
+        super.draw();
+        var n = new vec2(this.p.x + Math.cos(this.a) * 20, this.p.y + Math.sin(this.a) * 20);
+       // game.line([this.p, n], "#FFFFFF", false);
         if (this.flying) {
             this.p.x += this.flying.x;
             this.p.y += this.flying.y;
             this.flyingFor++;
-            if (this.flyingFor > 120)
-                this.explode(4);
+           // if (this.flyingFor > 120)
+           //     this.explode(4);
+            this.a += .2;
         }
         else {
             this.p.y += this.v.y||2;
@@ -176,7 +214,14 @@ class Player extends Entity {
         player = this;
         this.p = new vec2(game.canvas.width / 2, game.canvas.height * 3 / 4);
         this.r = 8;
-        this.color = "#00FF00";
+       // this.color = "#00FF00";
+        this.image = function () {
+            if (player.charging)
+                return 'character_attack1.png';
+            if (player.grabbed)
+                return 'character_attack3.png';
+            return 'character_armdown3.png';
+        };
     }
     draw() {
         if (!this.charging) {
@@ -202,7 +247,9 @@ class Player extends Entity {
         }
         if (this.grabbed) {
             this.grabbed.p.x = this.p.x;
+            this.grabbed.a = Math.PI / 2*3;
             this.grabbed.p.y = this.p.y - this.r - this.grabbed.r;
+            super.draw.call(this.grabbed);
             this.aim += this.aimDir;
             if (Math.abs(this.aim + Math.PI / 2) > .45)
                 this.aimDir = -this.aimDir
@@ -218,13 +265,21 @@ class Player extends Entity {
         }
         else
             this.aim = -Math.PI / 2;
+        if (this.p.x - this.r < 0)
+            this.p.x = this.r;
+        if (this.p.x + this.r > game.canvas.width)
+            this.p.x = game.canvas.width - this.r;
+        if (this.p.y - this.r < 0)
+            this.p.y = this.r;
+        if (this.p.y + this.r > game.canvas.height)
+            this.p.y = game.canvas.height - this.r;
         super.draw();
     }
     collidedWith(e: Entity) {
         if (e == this.grabbed)
             return;
         if (!this.charging) {
-            if (e instanceof Enemy) {
+            if (e instanceof Enemy && !(<Enemy>e).flying) {
                 this.explode();
                 e.explode();
             }
@@ -246,6 +301,17 @@ var player: Player;
 class Game {
     entities = new Array<Entity>();
     nFrame = 0;
+    images = {};
+    neededImages = 0;
+    loadedImages = 0;
+    needImage(name: string) {
+        var image = new Image();
+        image.onload = function () {
+            game.images[name] = image;
+            game.loadedImages++;
+        };
+        image.src = name;
+    }
     line(points: vec2[], color: string, close: boolean = true, p: vec2= new vec2(0, 0), angle: number= 0 ) {
         this.ctx.strokeStyle = color;
         this.ctx.save();
@@ -280,7 +346,6 @@ class Game {
     }
 
     start() {
-        this.timerToken = setInterval(() => this.draw(), 21);
         this.entities.push(new Player());
         window.onkeydown = function (e) {
             keys[e.keyCode] = true;
@@ -300,6 +365,18 @@ class Game {
         spawn();
         for (var i = 0; i < 100; i++)
             game.entities.push(new Star());
+
+        for (var i = 1; i <= 8; i++) {
+            game.needImage('character_attack' + i + '.png');
+            game.needImage('character_armdown' + i + '.png');
+            game.needImage('character_out' + i + '.png');
+            game.needImage('redCharacter_attack' + i + '.png');
+            game.needImage('redCharacter_armdown' + i + '.png');
+            game.needImage('redCharacter_out' + i + '.png');
+        }
+        while (game.neededImages != game.loadedImages);
+
+        this.timerToken = setInterval(() => this.draw(), 21);
     }
 
     stop() {
@@ -338,15 +415,23 @@ class Game {
             var a = entities[i];
             if (!a.collides)
                 continue;
+            if (typeof (<any>a).flying !='undefined')
+                a.r *= 3.5;
             for (var j = i + 1; j < entities.length; j++) {
                 var b = entities[j];
                 if (!b.collides)
                     continue;
+                if (typeof (<any>b).flying != 'undefined')
+                    b.r *= 3.5;
                 if ((a.p.x - b.p.x) * (a.p.x - b.p.x) + (a.p.y - b.p.y) * (a.p.y - b.p.y) < (a.r + b.r) * (a.r + b.r)) {
                     a.collidedWith(b);
                     b.collidedWith(a);
                 }
+                if (typeof (<any>b).flying != 'undefined')
+                    b.r /= 3.5;
             }
+            if (typeof (<any>a).flying != 'undefined')
+                a.r /= 3.5;
         }
         this.entities.slice().forEach(function (entity: Entity) {
             if(entity.isDead)

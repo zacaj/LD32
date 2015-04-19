@@ -25,6 +25,22 @@ var score = 0;
 var nextScore = 0;
 var addScore = 0;
 var lastScore = 0;
+function angleToNumber(a) {
+    var i = Math.floor(((a % (Math.PI * 2)) + Math.PI / 8) / Math.PI / 2 * 8);
+    var mapping = {
+        '-1': 6,
+        0: 2,
+        1: 5,
+        2: 1,
+        3: 7,
+        4: 4,
+        5: 8,
+        6: 3,
+        7: 6,
+        8: 2
+    };
+    return mapping[i];
+}
 var Entity = (function () {
     function Entity() {
         this.isDead = false;
@@ -32,9 +48,17 @@ var Entity = (function () {
         this.a = 0;
     }
     Entity.prototype.draw = function () {
-        game.box(this.r * 2, this.r * 2, this.color, this.p, this.a);
         if (this.p.x + this.r < 0 || this.p.x - this.r > game.canvas.width || this.p.y + this.r < -1000 || this.p.y - this.r > game.canvas.height)
             this.isDead = true;
+        if (this.image) {
+            var name = this.image();
+            var image = game.images[name];
+            if (image) {
+                game.ctx.drawImage(image, this.p.x - this.r * 5, this.p.y - this.r * 5, this.r * 2 * 5, this.r * 2 * 5);
+                return;
+            }
+        }
+        game.box(this.r * 2, this.r * 2, this.color, this.p, this.a);
     };
     Entity.prototype.collidedWith = function (e) {
     };
@@ -92,7 +116,7 @@ var Explosion = (function (_super) {
             this.isDead = true;
     };
     Explosion.prototype.collidedWith = function (e) {
-        if (e instanceof Enemy || e instanceof Player)
+        if ((e instanceof Enemy && !e.flying) || e instanceof Player)
             e.explode();
     };
     return Explosion;
@@ -103,25 +127,40 @@ var Enemy = (function (_super) {
         _super.call(this);
         this.flyingFor = 0;
         this.v = new vec2(0, 0);
+        this.value = 10;
         this.p = new vec2(Math.random() * game.canvas.width, -50);
         this.r = 10;
         this.color = "#FF0000";
         this.a = Math.random() * Math.PI * 2;
-        if (Math.random() < .1)
+        if (Math.random() < .1) {
+            this.value *= 5;
             this.v.x = Math.random() > .5 ? 1.5 : -1.5;
-        if (Math.random() < .02)
+        }
+        if (Math.random() < .02) {
+            this.value *= 10;
             this.v.y = 2;
+        }
+        var enemy = this;
+        this.image = function () {
+            var pref = 'armdown';
+            if (enemy.flying)
+                pref = 'out';
+            return 'redCharacter_' + pref + angleToNumber(enemy.a) + '.png';
+        };
     }
     Enemy.prototype.draw = function () {
-        _super.prototype.draw.call(this);
         if (player.grabbed == this)
             return;
+        _super.prototype.draw.call(this);
+        var n = new vec2(this.p.x + Math.cos(this.a) * 20, this.p.y + Math.sin(this.a) * 20);
+        // game.line([this.p, n], "#FFFFFF", false);
         if (this.flying) {
             this.p.x += this.flying.x;
             this.p.y += this.flying.y;
             this.flyingFor++;
-            if (this.flyingFor > 60)
-                this.explode(4);
+            // if (this.flyingFor > 120)
+            //     this.explode(4);
+            this.a += .2;
         }
         else {
             this.p.y += this.v.y || 2;
@@ -140,14 +179,18 @@ var Enemy = (function (_super) {
         }
     };
     Enemy.prototype.collidedWith = function (e) {
-        if (e instanceof Enemy) {
+        if (e instanceof Enemy && !e.flying) {
             e.explode();
+            if (this.flying) {
+                this.value *= 10;
+                this.flying.x *= -1;
+            }
         }
     };
     Enemy.prototype.explode = function (size) {
         if (size === void 0) { size = 2.5; }
         _super.prototype.explode.call(this, size);
-        nextScore += 100;
+        nextScore += this.value;
         combo++;
         comboTimeLeft = 30;
     };
@@ -181,7 +224,14 @@ var Player = (function (_super) {
         player = this;
         this.p = new vec2(game.canvas.width / 2, game.canvas.height * 3 / 4);
         this.r = 8;
-        this.color = "#00FF00";
+        // this.color = "#00FF00";
+        this.image = function () {
+            if (player.charging)
+                return 'character_attack1.png';
+            if (player.grabbed)
+                return 'character_attack3.png';
+            return 'character_armdown3.png';
+        };
     }
     Player.prototype.draw = function () {
         if (!this.charging) {
@@ -207,7 +257,9 @@ var Player = (function (_super) {
         }
         if (this.grabbed) {
             this.grabbed.p.x = this.p.x;
+            this.grabbed.a = Math.PI / 2 * 3;
             this.grabbed.p.y = this.p.y - this.r - this.grabbed.r;
+            _super.prototype.draw.call(this.grabbed);
             this.aim += this.aimDir;
             if (Math.abs(this.aim + Math.PI / 2) > .45)
                 this.aimDir = -this.aimDir;
@@ -223,13 +275,21 @@ var Player = (function (_super) {
         }
         else
             this.aim = -Math.PI / 2;
+        if (this.p.x - this.r < 0)
+            this.p.x = this.r;
+        if (this.p.x + this.r > game.canvas.width)
+            this.p.x = game.canvas.width - this.r;
+        if (this.p.y - this.r < 0)
+            this.p.y = this.r;
+        if (this.p.y + this.r > game.canvas.height)
+            this.p.y = game.canvas.height - this.r;
         _super.prototype.draw.call(this);
     };
     Player.prototype.collidedWith = function (e) {
         if (e == this.grabbed)
             return;
         if (!this.charging) {
-            if (e instanceof Enemy) {
+            if (e instanceof Enemy && !e.flying) {
                 this.explode();
                 e.explode();
             }
@@ -253,10 +313,21 @@ var Game = (function () {
     function Game() {
         this.entities = new Array();
         this.nFrame = 0;
+        this.images = {};
+        this.neededImages = 0;
+        this.loadedImages = 0;
         this.canvas = document.getElementById('canvas');
         this.ctx = this.canvas.getContext('2d');
         game = this;
     }
+    Game.prototype.needImage = function (name) {
+        var image = new Image();
+        image.onload = function () {
+            game.images[name] = image;
+            game.loadedImages++;
+        };
+        image.src = name;
+    };
     Game.prototype.line = function (points, color, close, p, angle) {
         if (close === void 0) { close = true; }
         if (p === void 0) { p = new vec2(0, 0); }
@@ -282,7 +353,6 @@ var Game = (function () {
     };
     Game.prototype.start = function () {
         var _this = this;
-        this.timerToken = setInterval(function () { return _this.draw(); }, 21);
         this.entities.push(new Player());
         window.onkeydown = function (e) {
             keys[e.keyCode] = true;
@@ -302,6 +372,17 @@ var Game = (function () {
         spawn();
         for (var i = 0; i < 100; i++)
             game.entities.push(new Star());
+        for (var i = 1; i <= 8; i++) {
+            game.needImage('character_attack' + i + '.png');
+            game.needImage('character_armdown' + i + '.png');
+            game.needImage('character_out' + i + '.png');
+            game.needImage('redCharacter_attack' + i + '.png');
+            game.needImage('redCharacter_armdown' + i + '.png');
+            game.needImage('redCharacter_out' + i + '.png');
+        }
+        while (game.neededImages != game.loadedImages)
+            ;
+        this.timerToken = setInterval(function () { return _this.draw(); }, 21);
     };
     Game.prototype.stop = function () {
         clearTimeout(this.timerToken);
@@ -337,15 +418,23 @@ var Game = (function () {
             var a = entities[i];
             if (!a.collides)
                 continue;
+            if (typeof a.flying != 'undefined')
+                a.r *= 3.5;
             for (var j = i + 1; j < entities.length; j++) {
                 var b = entities[j];
                 if (!b.collides)
                     continue;
+                if (typeof b.flying != 'undefined')
+                    b.r *= 3.5;
                 if ((a.p.x - b.p.x) * (a.p.x - b.p.x) + (a.p.y - b.p.y) * (a.p.y - b.p.y) < (a.r + b.r) * (a.r + b.r)) {
                     a.collidedWith(b);
                     b.collidedWith(a);
                 }
+                if (typeof b.flying != 'undefined')
+                    b.r /= 3.5;
             }
+            if (typeof a.flying != 'undefined')
+                a.r /= 3.5;
         }
         this.entities.slice().forEach(function (entity) {
             if (entity.isDead)
