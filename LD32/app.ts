@@ -86,7 +86,7 @@ class Explosion extends Entity {
             this.isDead = true;
     }
     collidedWith(e: Entity) {
-        if (e instanceof Enemy || e instanceof Player)
+        if ((e instanceof Enemy && !(<Enemy>e).flying) || e instanceof Player)
             e.explode();
     }
 }
@@ -94,6 +94,7 @@ class Enemy extends Entity {
     flying: vec2;
     flyingFor = 0;
     v = new vec2(0, 0);
+    value = 10;
     constructor() {
         super();
         this.p = new vec2(Math.random() * game.canvas.width, -50);
@@ -113,7 +114,7 @@ class Enemy extends Entity {
             this.p.x += this.flying.x;
             this.p.y += this.flying.y;
             this.flyingFor++;
-            if (this.flyingFor > 60)
+            if (this.flyingFor > 120)
                 this.explode(4);
         }
         else {
@@ -133,14 +134,18 @@ class Enemy extends Entity {
         }
     }
     collidedWith(e: Entity) {
-        if (e instanceof Enemy) {
+        if (e instanceof Enemy && !(<Enemy>e).flying) {
             e.explode();
+            if (this.flying) {
+                this.value *= 10;
+                this.flying.x *= -1;
+            }
         }
     }
     explode(size: number = 2.5) {
         super.explode(size);
 
-        nextScore += 100;
+        nextScore += this.value;
         combo++;
         comboTimeLeft = 30;
     }
